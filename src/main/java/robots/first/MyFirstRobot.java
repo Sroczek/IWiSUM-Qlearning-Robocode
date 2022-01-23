@@ -7,15 +7,12 @@ import robocode.BulletHitBulletEvent;
 import robocode.BulletHitEvent;
 import robocode.BulletMissedEvent;
 import robocode.RobocodeFileOutputStream;
-import robocode.Robot;
 import robocode.RobotDeathEvent;
 import robocode.RoundEndedEvent;
 import robocode.ScannedRobotEvent;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.FilePermission;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
@@ -24,16 +21,14 @@ import java.util.Map;
 
 import static java.lang.Math.abs;
 import static java.lang.Math.floor;
-import static java.lang.Math.min;
 import static java.lang.Math.random;
-import static java.lang.Math.signum;
 
 
 public class MyFirstRobot extends AdvancedRobot {
 
     private static int hitsInRound = 0;
     private static Map<Decision, Double> qTable = new HashMap<Decision, Double>();
-    private static final String QTABLE_FILE_NAME = "/robocode/qTable.jo";
+    private static final String QTABLE_FILE_NAME = "qTable.jo";
     private static double learningRate = 0.5;
     private static double discountFactor = 0.3;
     private static double randomWalkFactor = 0.05;
@@ -42,14 +37,9 @@ public class MyFirstRobot extends AdvancedRobot {
 
     private HashMap<Bullet, Decision> futureBulletsResults = new HashMap<Bullet, Decision>();
 
-    static {
-//        File f = new File(QTABLE_FILE_NAME);
-//        if(f.exists() && !f.isDirectory()) {
-//            load();
-//        }
-    }
-
     public void run() {
+        load();
+        printQTableInfo();
         setAdjustRadarForRobotTurn(true);
         EnvState prevEnvState = getEnvState();
         EnvState envState = getEnvState();
@@ -63,20 +53,21 @@ public class MyFirstRobot extends AdvancedRobot {
             updateKnowledge(new Decision(prevEnvState, action), envState);
             prevEnvState = envState;
 
-            turnRadarRight(45); //maximum radar angle per tura
+            turnRadarRight(-45); //maximum radar angle per ture
         }
     }
 
     private void updateKnowledge(Decision decision, EnvState causedEnvState) {
         double reward = 0;
-        if (decision.getEnvState().getRelative_to_opponent_gun_heading()
-                - causedEnvState.getRelative_to_opponent_gun_heading() > 0 )
-            reward = 2;
-
+        if (abs(causedEnvState.getRelative_to_opponent_gun_heading()) -
+                abs(decision.getEnvState().getRelative_to_opponent_gun_heading()) < 0)
+            reward = (float)(20 - abs(causedEnvState.getRelative_to_opponent_gun_heading())) / 2;
+        if (abs(causedEnvState.getRelative_to_opponent_gun_heading()) == 0) {
+            reward = 20;
+        }
 
         if (qTable.containsKey(decision)) {
             double oldValue = qTable.get(decision);
-//            qTable.remove(decision);
             double newValue = (1 - learningRate) * oldValue + learningRate * (reward + discountFactor * getEstimateOfPossibleFutureValue(causedEnvState));
             qTable.put(decision, newValue);
         } else {
@@ -105,7 +96,7 @@ public class MyFirstRobot extends AdvancedRobot {
     }
 
     private void updateKnowledge(Decision decision, boolean bulletHitSuccessfully) {
-        double reward = bulletHitSuccessfully ? 5 : -1;
+        double reward = bulletHitSuccessfully ? 5 : 0;
 
         if (qTable.containsKey(decision)) {
             double oldValue = qTable.get(decision);
@@ -118,36 +109,32 @@ public class MyFirstRobot extends AdvancedRobot {
     }
 
     private EnvState getEnvState() {
-        double h = getNearestKnownOpponentHeading() - getGunHeading();
-        double angle;
-        int sign = 1;
-        while ( h< 0) {
-            h += 360;
-        }
-        while (h >= 360) {
-            h -= 360;
-        }
-        if (h < 180) {
-            sign = 1;
-            angle = h;
-        } else {
-            sign = -1;
-            angle = 360 - h;
-        }
+        double gunAngle = getGunHeading();
+        double opponentAngle = getNearestKnownOpponentHeading();
+
+        double gunDistanceToOpponent = ((opponentAngle - gunAngle + 180) + 360) % 360 - 180;
+
         return EnvState.builder()
                 .relative_to_opponent_gun_heading(
-                        EnvState.quantizeRelativeGunHeading(sign * angle)
+                        EnvState.quantizeRelativeGunHeading(gunDistanceToOpponent)
                 ).build();
     }
 
     private double getNearestKnownOpponentHeading() {
-        double minAngleToOpponent = 180;
+        double absoluteGunDistanceToOpponent;
+        double gunAngle = getGunHeading();
+
+        double minAbsoluteGunDistanceToOpponent = 180;
+        double minDistanceNeighbourHeading = 0;
         for (double d : opponentsPositions.values()) {
-            if (d<minAngleToOpponent) {
-                minAngleToOpponent = d;
+            absoluteGunDistanceToOpponent = abs(((d - gunAngle + 180) + 360) % 360 - 180);
+
+            if (absoluteGunDistanceToOpponent<minAbsoluteGunDistanceToOpponent) {
+                minAbsoluteGunDistanceToOpponent = absoluteGunDistanceToOpponent;
+                minDistanceNeighbourHeading = d;
             }
         }
-        return minAngleToOpponent;
+        return minDistanceNeighbourHeading;
     }
 
     public Action chooseAction(EnvState envState) {
@@ -185,8 +172,16 @@ public class MyFirstRobot extends AdvancedRobot {
             case TURN_GUN_LEFT:
                 turnGunLeft(10);
                 break;
+            case TURN_GUN_LEFT_SLOW:
+                turnGunLeft(2);
+                break;
             case TURN_GUN_RIGHT:
                 turnGunRight(10);
+                break;
+            case TURN_GUN_RIGHT_SLOW:
+                turnGunRight(2);
+                break;
+            case DO_NOTHING:
                 break;
             case FIRE_BULLET:
                 Bullet bullet = fireBullet(1);
@@ -196,9 +191,11 @@ public class MyFirstRobot extends AdvancedRobot {
     }
 
     public void onScannedRobot(ScannedRobotEvent e) {
-        double opponentHeading = (e.getBearing() + getHeading()) % 360;
-//        System.out.println("Zauważono robota " + String.valueOf(opponentHeading) + "  " + e.getName());
-        opponentsPositions.put(e.getName(), opponentHeading);
+        double gunAngle = getGunHeading();
+        double opponentAngle = ((e.getBearing() + getHeading() + 360) % 360);
+
+        double gunDistanceToOpponent = ((opponentAngle - gunAngle + 180) + 360) % 360 - 180;
+        opponentsPositions.put(e.getName(), opponentAngle);
     }
 
     public void onRobotDeath(RobotDeathEvent e) {
@@ -228,9 +225,11 @@ public class MyFirstRobot extends AdvancedRobot {
         save();
     }
 
-    private static void load() {
+    private void load() {
+        System.out.println("Loading qTable from file: " + QTABLE_FILE_NAME);
         try {
-            FileInputStream fis = new FileInputStream(QTABLE_FILE_NAME);
+            File f = getDataFile(QTABLE_FILE_NAME);
+            FileInputStream fis = new FileInputStream(f);
             ObjectInputStream ois = new ObjectInputStream(fis);
             qTable = (HashMap) ois.readObject();
             ois.close();
@@ -243,17 +242,25 @@ public class MyFirstRobot extends AdvancedRobot {
         }
     }
 
-    private static void save() {
+    private void save() {
+        System.out.println("Loading qTable to file: " + QTABLE_FILE_NAME);
         try {
-            RobocodeFileOutputStream fos = new RobocodeFileOutputStream(QTABLE_FILE_NAME);
+            File f = getDataFile(QTABLE_FILE_NAME);
+            RobocodeFileOutputStream fos = new RobocodeFileOutputStream(f);
             ObjectOutputStream oos = new ObjectOutputStream(fos);
             oos.writeObject(qTable);
             oos.close();
             fos.close();
-
         } catch (IOException ioe) {
             ioe.printStackTrace();
         }
+    }
+
+    private void printQTableInfo() {
+//        for(Map.Entry<Decision, Double> e : qTable.entrySet()) {
+//            System.out.println(e.getKey().getAction().toString() + "  " + e.getValue().toString());
+//        }
+        System.out.println("Size of loaded table =" + qTable.size());
     }
 
     @Override
