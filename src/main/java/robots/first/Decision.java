@@ -11,7 +11,14 @@ import java.io.Serializable;
 @EqualsAndHashCode
 public class Decision implements Serializable {
 
-    private EnvState envState;
+    private QuantizedEnvState quantizedEnvState;
     private Action action;
 
+    @Override
+    public String toString() {
+        return "Decision{" +
+                "quantizedEnvState=" + quantizedEnvState +
+                ", action=" + action +
+                '}';
+    }
 }

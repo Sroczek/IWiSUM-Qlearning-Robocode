@@ -24,17 +24,17 @@ public class AggressorRobot extends Robot {
         double distance = e.getDistance();
         double turnRight = e.getBearing();
         if (distance > 600) {
-            fire(2);
+            fire(1);
             turnRight(turnRight);
             ahead(400);
         }else if (distance > 300) {
-            fire(3);
+            fire(1);
             turnRight(turnRight);
             ahead(200);
         } else {
             fire(1);
             turnRight(turnRight);
-            ahead(10);
+//            ahead(10);
         }
     }
 
